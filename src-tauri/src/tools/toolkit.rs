@@ -263,6 +263,7 @@ impl Toolkit {
                     "-ctf".into(),
                     "3ds".into(),
                     output.clone(),
+                    "--not-pad".into(),
                     "--header".into(),
                     "HeaderNCCH.bin".into(),
                 ];
