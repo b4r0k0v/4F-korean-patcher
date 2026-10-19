@@ -15,6 +15,8 @@
 
 설치 파일을 실행하고 안내에 따라 설치한 뒤, **4F Korean Patcher**를 여세요. WebView2 설치 안내가 나오면 함께 설치하세요. 명령어를 입력하거나 개발 도구를 설치할 필요는 없습니다.
 
+한글 패치 파일은 **[본편 1차 패치 배포글](https://gall.dcinside.com/mgallery/board/view/?id=megaten&no=47112)**과 **[본편 2차·DLC 패치 배포 페이지](https://github.com/snm01234/3DS-SMT4FINAL-KOR)**에서 준비하세요. 아래 표의 파일명 예시를 참고해 본편 1차·2차와 DLC 패치 ZIP을 구분해 주세요.
+
 | 준비할 파일 | 설명 |
 | --- | --- |
 | 본편 원본 | 북미판·UNDUB·DECRYPTED 버전의 `.3ds` 파일. UNDUB는 음성이 일본어로 변경된 버전, DECRYPTED는 해독된 상태를 뜻합니다. |
