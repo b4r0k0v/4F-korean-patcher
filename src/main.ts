@@ -22,7 +22,7 @@ app.innerHTML = `<header><span>Windows · SMT IV FINAL</span><h1>진여신전생
 <section id="panel-files" class="setup-panel" role="tabpanel" aria-labelledby="tab-files" hidden><h2>원본과 패치 선택</h2><p>본편은 지정된 북미 UNDUB 원본이 필요합니다. 패치는 ZIP만 지원합니다.</p><div id="inputs"></div><label class="toggle"><input id="useDlc" type="checkbox"> DLC도 패치하기</label><div id="dlcInputs" hidden></div><div class="step-actions"><button data-step="output">다음: 결과 설정 →</button></div></section>
 <section id="panel-output" class="setup-panel" role="tabpanel" aria-labelledby="tab-output" hidden><h2>결과 설정</h2><div id="folders"></div><label>본편 형식 <select id="format"><option value="cia">CIA</option><option value="threeds">3DS</option></select></label><p>DLC 결과는 CIA로 저장됩니다. 작업·출력 폴더에 충분한 여유 공간을 확보하세요.</p><p>준비를 마쳤으면 아래의 <strong>패치하기</strong>를 누르세요.</p></section>
 </div><section id="run-panel" aria-label="실행 및 결과"><div class="run-actions"><button id="start" disabled>패치하기</button><button id="cancel" hidden>취소</button><button id="copy" hidden>상세 오류 복사</button><button id="openOutput" hidden>출력 폴더 열기</button></div><p id="status" role="status" aria-live="polite">필수 경로와 원본 해시를 확인하세요.</p><div id="progress"></div><pre id="result" tabindex="0"></pre></section>`;
-const tabs = [...app.querySelectorAll<HTMLButtonElement>('.step-tab')];
+const tabs = Array.from(app.querySelectorAll<HTMLButtonElement>('.step-tab'));
 function selectStep(step: string) {
   for (const tab of tabs) {
     const selected = tab.dataset.step === step;
@@ -34,7 +34,7 @@ function selectStep(step: string) {
 app.querySelectorAll<HTMLButtonElement>('[data-step]').forEach(button => {
   button.onclick = () => { selectStep(button.dataset.step!); if (!button.matches('.step-tab')) tabs.find(tab => tab.dataset.step === button.dataset.step)?.focus(); };
 });
-tabs.forEach((tab, index) => tab.onkeydown = event => {
+tabs.forEach((tab, index) => tab.onkeydown = (event: KeyboardEvent) => {
   const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
   if (next < 0 || tabs[next].disabled) return;
   event.preventDefault(); selectStep(tabs[next].dataset.step!); tabs[next].focus();
