@@ -1,7 +1,7 @@
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
 import { open, confirm } from '@tauri-apps/plugin-dialog';
-import { openUrl, openPath } from '@tauri-apps/plugin-opener';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
 
 interface AppError { message: string; detail: string }
@@ -21,7 +21,7 @@ export const values: Record<string, string> = {};
 let stored: Record<string, string> = {};
 try { stored = JSON.parse(localStorage.getItem('4f-tools') || '{}'); } catch { /* recover corrupt preferences */ }
 export let busy = false;
-export function setBusy(value: boolean) { busy = value; app.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input, button, select').forEach(el => { if (!['cancel', 'copy', 'openOutput'].includes(el.id)) el.disabled = value; }); if (!value) void refresh(); }
+export function setBusy(value: boolean) { busy = value; app.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input, button, select').forEach(el => { if (!['cancel', 'copy', 'openOutput'].includes(el.id)) el.disabled = value; }); if (!value) void refresh(false); }
 const hashes: Record<string, string> = {};
 let revision = 0;
 export function showError(error: unknown) {
@@ -31,12 +31,12 @@ export function showError(error: unknown) {
 }
 export function request() { return { ...values, dlc: useDlc() ? values.dlc : null, dlcPatch: useDlc() ? values.dlcPatch : null, format: document.querySelector<HTMLSelectElement>('#format')!.value }; }
 function useDlc() { return document.querySelector<HTMLInputElement>('#useDlc')!.checked; }
-async function refresh() {
+async function refresh(updateStatus = true) {
   const version = ++revision;
   const start = document.querySelector<HTMLButtonElement>('#start')!; start.disabled = true;
   if (busy || !values.base || hashes.base !== values.base || (useDlc() && (!values.dlc || hashes.dlc !== values.dlc))) return;
-  try { await invoke('check_inputs', { request: request() }); if (version === revision && !busy) { start.disabled = false; document.querySelector('#status')!.textContent = '준비되었습니다. 패치하기를 누르세요.'; } }
-  catch (e) { if (version === revision) document.querySelector('#status')!.textContent = (e as AppError).message; }
+  try { await invoke('check_inputs', { request: request() }); if (version === revision && !busy) { start.disabled = false; if (updateStatus) document.querySelector('#status')!.textContent = '준비되었습니다. 패치하기를 누르세요.'; } }
+  catch (e) { if (version === revision && updateStatus) document.querySelector('#status')!.textContent = (e as AppError).message; }
 }
 for (const [key, label, kind] of fields) {
   const row = document.createElement('div'); row.className = 'field';
@@ -46,6 +46,11 @@ for (const [key, label, kind] of fields) {
   const button = document.createElement('button'); button.textContent = '찾아보기'; button.setAttribute('aria-label', `${label} 선택`);
   const status = document.createElement('small'); status.setAttribute('aria-live', 'polite');
   line.append(input, button); row.append(title, line, status);
+  const checkPath = async (path: string) => {
+    try { await invoke('check_field', { path, kind: ['toolkit', 'decryptor'].includes(key) ? key : key === 'patch1' ? 'first' : kind === 'zip' ? 'patch' : kind }); if (values[key] === path) status.textContent = '사용 가능'; }
+    catch (e) { if (values[key] === path) status.textContent = (e as AppError).message; }
+  };
+  if (input.value) void checkPath(input.value);
   document.querySelector(kind === 'dir' ? (['toolkit', 'decryptor'].includes(key) ? '#tools' : '#folders') : (key.startsWith('dlc') ? '#dlcInputs' : '#inputs'))!.append(row);
   button.onclick = async () => {
     try {
@@ -58,7 +63,7 @@ for (const [key, label, kind] of fields) {
         status.textContent = 'SHA-256 검사 중…';
         try { await invoke('check_hash', { path, dlc: key === 'dlc' }); if (values[key] === path) { hashes[key] = path; status.textContent = 'SHA-256 일치'; } }
         catch (e) { if (values[key] === path) status.textContent = (e as AppError).message; }
-      } else { status.textContent = '선택됨'; }
+      } else { await checkPath(path); }
       await refresh();
     } catch (e) { showError(e); }
   };
@@ -104,4 +109,4 @@ cancel.onclick = async () => {
   try { await invoke('cancel_patch', { close: false }); status.textContent = '취소 중… 현재 도구가 종료될 때까지 기다려 주세요.'; }
   catch (e) { showError(e); cancel.disabled = false; }
 };
-outputButton.onclick = () => { void openPath(values.output).catch(showError); };
+outputButton.onclick = () => { void invoke('open_output', { path: values.output }).catch(showError); };

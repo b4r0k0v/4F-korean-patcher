@@ -33,7 +33,7 @@ pub fn makerom(root: &Path) -> Result<PathBuf> {
         executable(root, &["MakeRom32.exe", "makerom.exe"])
     }
 }
-fn input(p: &Path, ext: &str) -> Result<()> {
+pub fn input(p: &Path, ext: &str) -> Result<()> {
     if !p.is_file() || !p.extension().is_some_and(|x| x.eq_ignore_ascii_case(ext)) {
         return Err(AppError::new(
             format!("읽을 수 있는 .{ext} 파일을 선택하세요."),
@@ -43,7 +43,7 @@ fn input(p: &Path, ext: &str) -> Result<()> {
     File::open(p)?;
     Ok(())
 }
-fn writable(p: &Path) -> Result<()> {
+pub fn writable(p: &Path) -> Result<()> {
     if !p.is_dir() {
         return Err(AppError::new(
             "작업·출력 폴더는 존재하는 폴더를 선택하세요.",
@@ -62,10 +62,25 @@ pub fn validate(r: &Request) -> Result<()> {
     input(&r.base, "3ds")?;
     input(&r.patch1, "zip")?;
     input(&r.patch2, "zip")?;
+    crate::archive::validate(
+        &r.patch1,
+        crate::archive::Layout::First,
+        &crate::model::Cancel::default(),
+    )?;
+    crate::archive::validate(
+        &r.patch2,
+        crate::archive::Layout::Patch,
+        &crate::model::Cancel::default(),
+    )?;
     match (&r.dlc, &r.dlc_patch) {
         (Some(a), Some(b)) => {
             input(a, "cia")?;
             input(b, "zip")?;
+            crate::archive::validate(
+                b,
+                crate::archive::Layout::Patch,
+                &crate::model::Cancel::default(),
+            )?;
         }
         (None, None) => {}
         _ => {

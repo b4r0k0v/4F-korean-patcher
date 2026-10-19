@@ -125,7 +125,7 @@ impl Toolkit {
             runner,
             cwd,
             &[
-                "-xutf",
+                "-xtf",
                 "exefs",
                 "DecryptedExeFS.bin",
                 "--exefs-dir",
@@ -166,6 +166,7 @@ impl Toolkit {
         Ok(())
     }
     fn primary(&self, runner: &mut dyn Runner, cwd: &Path) -> Result<()> {
+        normalize_code_header(cwd)?;
         self.call(
             runner,
             cwd,
@@ -291,6 +292,30 @@ impl Toolkit {
         }
         let output = cwd.join(output);
         nonempty(&output)?;
+        match format {
+            Format::Cia => {
+                let catalog = crate::tools::cia::read(&output)?;
+                if !catalog.contents.contains_key(&0) {
+                    return Err(AppError::new(
+                        "본편 CIA에 주 콘텐츠가 없습니다.",
+                        output.display(),
+                    ));
+                }
+            }
+            Format::ThreeDs => {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut f = fs::File::open(&output)?;
+                f.seek(SeekFrom::Start(0x100))?;
+                let mut magic = [0; 4];
+                f.read_exact(&mut magic)?;
+                if &magic != b"NCSD" {
+                    return Err(AppError::new(
+                        "3DS 결과 헤더가 올바르지 않습니다.",
+                        output.display(),
+                    ));
+                }
+            }
+        }
         Ok(output)
     }
     pub fn rebuild_cfa(
@@ -315,5 +340,66 @@ impl Toolkit {
             ],
             &[output],
         )
+    }
+}
+
+fn normalize_code_header(cwd: &Path) -> Result<()> {
+    let path = cwd.join("DecryptedExHeader.bin");
+    let mut h = fs::read(&path)?;
+    if h.len() < 0x40 {
+        return Err(AppError::new(
+            "ExHeader 크기가 올바르지 않습니다.",
+            path.display(),
+        ));
+    }
+    if h[0xd] & 1 != 0 {
+        let pages = [0x14, 0x24, 0x34]
+            .iter()
+            .map(|at| u32::from_le_bytes(h[*at..*at + 4].try_into().unwrap()) as u64)
+            .sum::<u64>();
+        let code = fs::read(cwd.join("ExtractedExeFS/code.bin"))?;
+        if pages > 0 && code.len() as u64 == pages * 4096 {
+            // The provided UNDUB and Korean patch already contain raw, page-aligned code.
+            h[0xd] &= !1;
+            fs::write(path, h)?;
+        } else {
+            // Compressed code must have a plausible BLZ footer, never guess from the flag alone.
+            let valid = code.len() >= 8 && {
+                let at = code.len() - 8;
+                let footer = u32::from_le_bytes(code[at..at + 4].try_into().unwrap());
+                let expanded = u32::from_le_bytes(code[at + 4..].try_into().unwrap());
+                let compressed = footer & 0xffffff;
+                let header = footer >> 24;
+                (8..=11).contains(&header)
+                    && compressed >= header
+                    && compressed as usize <= code.len()
+                    && code.len() as u64 + expanded as u64 == pages * 4096
+            };
+            if !valid {
+                return Err(AppError::new(
+                    "code.bin 압축 형식과 ExHeader 크기가 일치하지 않습니다.",
+                    cwd.display(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn raw_code_clears_only_compression_flag() {
+        let t = tempfile::tempdir().unwrap();
+        fs::create_dir(t.path().join("ExtractedExeFS")).unwrap();
+        let mut h = vec![0; 2048];
+        h[13] = 3;
+        h[0x14..0x18].copy_from_slice(&1u32.to_le_bytes());
+        fs::write(t.path().join("DecryptedExHeader.bin"), &h).unwrap();
+        fs::write(t.path().join("ExtractedExeFS/code.bin"), vec![0; 4096]).unwrap();
+        normalize_code_header(t.path()).unwrap();
+        h[13] = 2;
+        assert_eq!(fs::read(t.path().join("DecryptedExHeader.bin")).unwrap(), h);
     }
 }

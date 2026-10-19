@@ -4,6 +4,8 @@ pub mod error;
 pub mod hash;
 pub mod model;
 pub mod pipeline;
+#[cfg(test)]
+mod test_support;
 pub mod tools;
 pub mod validation;
 pub mod workspace;
@@ -17,6 +19,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::check_inputs,
             commands::check_hash,
+            commands::check_field,
+            commands::open_output,
             commands::start_patch,
             commands::cancel_patch
         ])

@@ -36,7 +36,30 @@ pub fn read(path: &Path) -> Result<Cia> {
     f.seek(SeekFrom::Start(at))?;
     let mut t = vec![0; n as usize];
     f.read_exact(&mut t)?;
-    parse_tmd(&t)
+    let catalog = parse_tmd(&t)?;
+    let mut included = [0; 0x2000];
+    f.seek(SeekFrom::Start(32))?;
+    f.read_exact(&mut included)?;
+    for index in catalog.contents.keys() {
+        if included[*index as usize / 8] & (0x80 >> (index % 8)) == 0 {
+            return Err(AppError::new(
+                "CIA에 일부 콘텐츠 데이터가 누락되어 있습니다.",
+                index,
+            ));
+        }
+    }
+    let content_size = u64::from_le_bytes(h[24..32].try_into().unwrap());
+    if content_size == 0
+        || align(at + n)
+            .checked_add(content_size)
+            .is_none_or(|end| end > size)
+    {
+        return Err(AppError::new(
+            "CIA 콘텐츠 크기가 올바르지 않습니다.",
+            path.display(),
+        ));
+    }
+    Ok(catalog)
 }
 fn parse_tmd(t: &[u8]) -> Result<Cia> {
     let invalid = || {
@@ -65,7 +88,7 @@ fn parse_tmd(t: &[u8]) -> Result<Cia> {
         return Err(invalid());
     }
     let mut contents = BTreeMap::new();
-    for record in t[start..start + count * 0x30].chunks_exact(0x30) {
+    for record in t[start..start + count * 0x30].as_chunks::<0x30>().0 {
         let id = u32::from_be_bytes(record[..4].try_into().unwrap());
         let index = u16::from_be_bytes(record[4..6].try_into().unwrap());
         if contents.insert(index, id).is_some() {

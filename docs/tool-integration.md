@@ -2,7 +2,7 @@
 
 ## 조사 범위
 
-2026-10-19 기준 `dev-temp`에 준비된 도구의 배치 파일과 패치 ZIP 내부 항목·설명서를 읽었다. 실행 파일이나 게임 파일로 실제 패치를 수행하지는 않았다. 아래에서 배치 동작은 정적 분석 결과이며, 앱 연동 방식은 그 결과에 따른 구현 계획이다.
+2026-10-19 기준 `dev-temp`에 준비된 도구의 배치 파일과 패치 ZIP 내부 항목·설명서를 조사했다. 이후 사용자가 제공한 게임 원본으로 연동 검증을 진행했다. 아래 배치 설명은 정적 분석 결과이며, 실제 어댑터의 차이와 실행 검증 결과는 이 문서 마지막 부분 및 [검증 기록](verification.md)을 참고한다.
 
 주요 확인 파일:
 
@@ -105,3 +105,15 @@ DLC ZIP의 설명서와 빌드 스크립트는 일반 CIA 배치와 다른 구�
 - 공백·한글 경로, 취소 시 자식 프로세스 종료, 디스크 사용량과 처리 시간.
 
 도구 진입점, 배치의 인자와 CWD 규칙, ZIP 형식·적용 루트는 확인을 마친 항목이다. 위 목록은 실제 실행으로 검증해야 하는 항목이다.
+
+## 6. 구현과 실제 실행에서 확인한 차이
+
+- `src-tauri/src/tools/`에서 도구를 직접 호출한다. 배치·셸은 실행하지 않으며 CWD를 전용 작업 폴더로 고정하고 입력 파일명과 콘텐츠 인자를 상대 경로로 전달한다.
+- `decrypt.exe`도 종료 직전에 Enter를 기다린다. 표준입력을 닫으면 모든 콘텐츠를 해독한 뒤에도 Python EOF 오류로 종료한다. 이 실행에만 파이프로 CRLF를 보내고 닫는다. 실패 종료 코드를 무시하지 않는다.
+- 이 `decrypt.exe`는 CWD와 별개로 자기 실행 파일이 있는 폴더에 NCCH를 쓴다. 따라서 실행 전 `decrypt.exe` 자체도 실행별 DLC 폴더에 복사하고 그 복사본을 호출한다. 원래 도구 폴더에서 실행하지 않는다.
+- 지정된 UNDUB 원본은 이미 비압축인 `code.bin`을 담고 있다. `3dstool -xutf exefs`는 `uncompress error`로 실패한다. 원시 추출 `-xtf exefs` 후 패치를 적용한다. 재생성 전 ExHeader의 세 섹션 페이지 수와 코드 크기가 일치하면 작업 복사본의 코드 압축 플래그만 해제한다. 압축 코드라면 BLZ footer와 확장 크기가 일치해야 한다.
+- 준비된 HackingToolkit의 ctrtool은 `--contents` 옵션을 제공한다. DLC 추출에 `--contents=DecryptedApp`을 사용한다.
+- 본편은 HackingToolkit의 MakeRom64/32를 사용하고, DLC 해독·최종 생성은 Decryptor의 makerom v0.16을 사용한다. DLC 보조 RSF 옵션을 포함한 빌드 규약에 맞춘다.
+- CIA/TMD를 바이너리로 읽어 타이틀 ID와 콘텐츠 인덱스·ID를 보존하며, 재생성 결과도 동일한지 검사한다. 레코드만 있고 실제 포함 비트가 없는 CIA, 잘린 TMD, 잘못된 콘텐츠 크기는 거부한다. 형식 근거: [Project_CTR CIA 헤더](https://github.com/3DSGuy/Project_CTR/blob/master/ctrtool/deps/libnintendo-n3ds/include/ntd/n3ds/cia.h), [makerom TMD 헤더](https://github.com/3DSGuy/Project_CTR/blob/master/makerom/src/tmd.h), [TMD 레코드 처리](https://github.com/3DSGuy/Project_CTR/blob/master/makerom/src/tmd.c).
+- `rebuild/content.0000.cfa`·`rebuild/dlc.rsf`는 패치 ZIP에서 이름을 명시한 보조 입력으로 읽는다. ZIP 동봉 스크립트는 실행하지 않는다. 콘텐츠 1·2는 패치된 RomFS 바이너리로 만들고, 3 이상은 원래 인덱스·ID에 대응하는 전체 콘텐츠를 전달한다.
+- 프로세스를 일시 정지 상태로 시작한 뒤 Windows Job Object에 넣고 재개한다. 취소와 정상 종료 모두 남은 자식 프로세스를 종료하고 종료 확인을 기다린다. 테스트용 프로세스 트리로 실제 종료를 검증한다.

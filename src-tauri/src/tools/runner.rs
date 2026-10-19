@@ -12,6 +12,9 @@ use std::{
 
 pub trait Runner {
     fn run(&mut self, exe: &Path, cwd: &Path, args: &[String]) -> Result<()>;
+    fn run_input(&mut self, exe: &Path, cwd: &Path, args: &[String], _input: &[u8]) -> Result<()> {
+        self.run(exe, cwd, args)
+    }
 }
 pub struct ProcessRunner {
     pub cancel: Cancel,
@@ -20,6 +23,20 @@ pub struct ProcessRunner {
 }
 impl Runner for ProcessRunner {
     fn run(&mut self, exe: &Path, cwd: &Path, args: &[String]) -> Result<()> {
+        self.execute(exe, cwd, args, None)
+    }
+    fn run_input(&mut self, exe: &Path, cwd: &Path, args: &[String], input: &[u8]) -> Result<()> {
+        self.execute(exe, cwd, args, Some(input))
+    }
+}
+impl ProcessRunner {
+    fn execute(
+        &mut self,
+        exe: &Path,
+        cwd: &Path,
+        args: &[String],
+        input: Option<&[u8]>,
+    ) -> Result<()> {
         self.cancel.check()?;
         self.sequence += 1;
         let stem = self.logs.join(format!("{:03}", self.sequence));
@@ -37,7 +54,11 @@ impl Runner for ProcessRunner {
         command
             .current_dir(cwd)
             .args(args)
-            .stdin(Stdio::null())
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(File::create(&stdout)?)
             .stderr(File::create(&stderr)?);
         #[cfg(windows)]
@@ -63,12 +84,26 @@ impl Runner for ProcessRunner {
             let _ = child.wait();
             return Err(e);
         }
+        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+            use std::io::Write;
+            if let Err(e) = stdin.write_all(input) {
+                #[cfg(windows)]
+                job.terminate()?;
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e.into());
+            }
+        }
         loop {
             if let Err(e) = self.cancel.check() {
                 #[cfg(windows)]
                 job.terminate()?;
                 let _ = child.kill();
-                child.wait()?;
+                let status = child.wait()?;
+                fs::write(
+                    stem.with_extension("exit.txt"),
+                    format!("cancelled: {status}"),
+                )?;
                 return Err(e);
             }
             if let Some(status) = child.try_wait()? {
@@ -79,9 +114,10 @@ impl Runner for ProcessRunner {
                     return Err(AppError::new(
                         "외부 도구가 실패했습니다. 도구 경로·원본과 상세 로그를 확인하세요.",
                         format!(
-                            "{}\nexit: {status}\nstdout: {}\nstderr: {}\n{}",
+                            "{}\nexit: {status}\nstdout: {}\n{}\nstderr: {}\n{}",
                             exe.display(),
                             stdout.display(),
+                            tail(&stdout),
                             stderr.display(),
                             tail(&stderr)
                         ),
@@ -103,6 +139,126 @@ fn tail(p: &Path) -> String {
     let mut b = vec![];
     let _ = f.read_to_end(&mut b);
     String::from_utf8_lossy(&b).into_owned()
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    #[test]
+    #[ignore = "subprocess fixture; invoked only by runner cancellation test"]
+    fn process_fixture() {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tools::runner::tests::leaf_fixture", "--ignored"])
+            .spawn()
+            .unwrap();
+        fs::write("fixture-child.pid", child.id().to_string()).unwrap();
+        let _ = child.wait();
+    }
+    #[test]
+    #[ignore = "subprocess fixture"]
+    fn leaf_fixture() {
+        thread::sleep(Duration::from_secs(30));
+    }
+    #[test]
+    #[ignore = "stdin subprocess fixture"]
+    fn stdin_fixture() {
+        let mut line = String::new();
+        assert!(std::io::stdin().read_line(&mut line).unwrap() > 0);
+    }
+    #[test]
+    fn newline_input_releases_decryptor_prompt() {
+        let t = tempfile::tempdir().unwrap();
+        let mut runner = ProcessRunner {
+            cancel: Cancel::default(),
+            logs: t.path().into(),
+            sequence: 0,
+        };
+        runner
+            .run_input(
+                &std::env::current_exe().unwrap(),
+                t.path(),
+                &[
+                    "--exact".into(),
+                    "tools::runner::tests::stdin_fixture".into(),
+                    "--ignored".into(),
+                ],
+                b"\r\n",
+            )
+            .unwrap();
+    }
+    #[test]
+    fn cancellation_terminates_descendants_and_keeps_logs() {
+        let t = tempfile::tempdir().unwrap();
+        let logs = t.path().join("logs");
+        fs::create_dir(&logs).unwrap();
+        let cancel = Cancel::default();
+        let signal = cancel.clone();
+        let pidfile = t.path().join("fixture-child.pid");
+        let watcher = thread::spawn(move || {
+            for _ in 0..100 {
+                if pidfile.is_file() {
+                    signal.cancel();
+                    return;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            signal.cancel();
+        });
+        let mut runner = ProcessRunner {
+            cancel,
+            logs: logs.clone(),
+            sequence: 0,
+        };
+        let error = runner
+            .run(
+                &std::env::current_exe().unwrap(),
+                t.path(),
+                &[
+                    "--exact".into(),
+                    "tools::runner::tests::process_fixture".into(),
+                    "--ignored".into(),
+                    "--nocapture".into(),
+                ],
+            )
+            .unwrap_err();
+        watcher.join().unwrap();
+        assert_eq!(error.detail.as_ref(), "cancelled");
+        let pid = fs::read_to_string(t.path().join("fixture-child.pid"))
+            .unwrap()
+            .parse::<u32>()
+            .unwrap();
+        unsafe {
+            use windows_sys::Win32::{
+                Foundation::{CloseHandle, WAIT_OBJECT_0},
+                System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
+            };
+            let process = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+            if !process.is_null() {
+                assert_eq!(WaitForSingleObject(process, 1000), WAIT_OBJECT_0);
+                CloseHandle(process);
+            }
+        }
+        assert!(logs.join("001.command.txt").is_file());
+    }
+    #[test]
+    fn nonzero_exit_and_missing_output_are_errors() {
+        let t = tempfile::tempdir().unwrap();
+        let mut runner = ProcessRunner {
+            cancel: Cancel::default(),
+            logs: t.path().into(),
+            sequence: 0,
+        };
+        // Rust test harness returns a nonzero code for an unsupported argument.
+        assert!(runner
+            .run(
+                &std::env::current_exe().unwrap(),
+                t.path(),
+                &["--invalid-test-option".into()]
+            )
+            .is_err());
+        assert!(t.path().join("001.exit.txt").is_file());
+        assert!(nonempty(&t.path().join("missing")).is_err());
+    }
 }
 pub fn nonempty(p: &Path) -> Result<()> {
     if !p.is_file() || fs::metadata(p)?.len() == 0 {

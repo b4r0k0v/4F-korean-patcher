@@ -5,7 +5,7 @@ description = "Windows SMT 4F Korean patcher"
 edition = "2021"
 
 [lib]
-name = "four_f_korean_patcher"
+name = "four_f_korean_patcher_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

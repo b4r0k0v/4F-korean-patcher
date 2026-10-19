@@ -77,6 +77,57 @@ pub async fn check_inputs(request: Request) -> Result<()> {
         .map_err(|e| AppError::new("입력 검사 실패", e))?
 }
 #[tauri::command]
+pub fn open_output(app: tauri::AppHandle, path: String) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = std::path::Path::new(&path);
+    if !path.is_dir() {
+        return Err(AppError::new(
+            "출력 폴더를 찾을 수 없습니다.",
+            path.display(),
+        ));
+    }
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)?;
+    Ok(())
+}
+#[tauri::command]
+pub async fn check_field(path: String, kind: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        match kind.as_str() {
+            "toolkit" => {
+                validation::executable(p, &["3dstool.exe"])?;
+                validation::ctr(p)?;
+                validation::makerom(p)?;
+                Ok(())
+            }
+            "decryptor" => {
+                for name in ["decrypt.exe", "ctrtool.exe", "makerom.exe"] {
+                    validation::executable(p, &[name])?;
+                }
+                Ok(())
+            }
+            "dir" => validation::writable(p),
+            "3ds" | "cia" | "zip" => validation::input(p, &kind),
+            "first" | "patch" => {
+                validation::input(p, "zip")?;
+                crate::archive::validate(
+                    p,
+                    if kind == "first" {
+                        crate::archive::Layout::First
+                    } else {
+                        crate::archive::Layout::Patch
+                    },
+                    &Cancel::default(),
+                )
+            }
+            _ => Err(AppError::new("지원하지 않는 입력 형식입니다.", kind)),
+        }
+    })
+    .await
+    .map_err(|e| AppError::new("경로 검사 실패", e))?
+}
+#[tauri::command]
 pub async fn check_hash(path: String, dlc: bool) -> Result<()> {
     tauri::async_runtime::spawn_blocking(move || {
         hash::verify(

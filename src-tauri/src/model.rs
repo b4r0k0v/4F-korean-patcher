@@ -50,7 +50,7 @@ impl Cancel {
         self.0.store(true, Ordering::SeqCst);
     }
 }
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub run_id: String,
@@ -58,7 +58,7 @@ pub struct Progress {
     pub completed: usize,
     pub total: usize,
 }
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
     pub files: Vec<String>,

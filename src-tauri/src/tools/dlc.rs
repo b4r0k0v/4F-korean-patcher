@@ -32,7 +32,10 @@ impl Decryptor {
                 format!("{:016X}", catalog.title),
             ));
         }
-        runner.run(&self.decrypt, cwd, &["input.cia".into()])?;
+        // This PyInstaller executable writes beside its own executable, ignoring CWD.
+        let local = cwd.join("decrypt.exe");
+        workspace::copy(&self.decrypt, &local, &Cancel::default())?;
+        runner.run_input(&local, cwd, &["input.cia".into()], b"\r\n")?;
         let mut args = vec![
             "-f".into(),
             "cia".into(),

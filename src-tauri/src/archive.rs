@@ -37,12 +37,19 @@ fn relative(name: &str) -> Result<PathBuf> {
     }
     Ok(out)
 }
-pub fn apply(zip: &Path, dest: &Path, layout: Layout, cancel: &Cancel) -> Result<()> {
-    workspace::safe_tree(dest)?;
-    let mut zip = zip::ZipArchive::new(File::open(zip)?)?;
+pub fn validate(path: &Path, layout: Layout, cancel: &Cancel) -> Result<()> {
+    let mut zip = zip::ZipArchive::new(File::open(path)?)?;
+    plan(&mut zip, layout, cancel).map(|_| ())
+}
+fn plan(
+    zip: &mut zip::ZipArchive<File>,
+    layout: Layout,
+    cancel: &Cancel,
+) -> Result<Vec<(usize, PathBuf, bool)>> {
     let mut entries = vec![];
     let mut seen = HashSet::new();
     let mut roots = HashSet::new();
+    let mut targets = HashSet::new();
     let mut count = 0;
     // Inspect every entry, including entries outside patch/, before writing anything.
     for i in 0..zip.len() {
@@ -83,6 +90,12 @@ pub fn apply(zip: &Path, dest: &Path, layout: Layout, cancel: &Cancel) -> Result
         if target.as_os_str().is_empty() {
             continue;
         }
+        if !targets.insert(target.to_string_lossy().to_lowercase()) {
+            return Err(AppError::new(
+                "폴더명 매핑 후 ZIP 경로가 중복됩니다.",
+                f.name(),
+            ));
+        }
         if !f.is_dir() {
             count += 1;
         }
@@ -98,7 +111,12 @@ pub fn apply(zip: &Path, dest: &Path, layout: Layout, cancel: &Cancel) -> Result
             "invalid ZIP layout",
         ));
     }
-    for (i, rel, dir) in entries {
+    Ok(entries)
+}
+pub fn apply(zip: &Path, dest: &Path, layout: Layout, cancel: &Cancel) -> Result<()> {
+    workspace::safe_tree(dest)?;
+    let mut zip = zip::ZipArchive::new(File::open(zip)?)?;
+    for (i, rel, dir) in plan(&mut zip, layout, cancel)? {
         cancel.check()?;
         let target = dest.join(rel);
         let parent = target.parent().unwrap();

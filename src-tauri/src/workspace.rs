@@ -162,3 +162,62 @@ pub fn publish(source: &Path, output: &Path, name: &str, cancel: &Cancel) -> Res
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ownership_marker_prevents_cleanup_of_foreign_data() {
+        let t = tempfile::tempdir().unwrap();
+        let parent = fs::canonicalize(t.path()).unwrap();
+        let root = parent.join("4f-run-test");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join(".4f-owner"), "other").unwrap();
+        fs::write(root.join("keep"), "existing").unwrap();
+        let w = Workspace {
+            root: root.clone(),
+            parent,
+            id: "test".into(),
+        };
+        assert!(w.cleanup().is_err());
+        assert!(root.join("keep").exists());
+        fs::write(root.join(".4f-owner"), "test").unwrap();
+        w.cleanup().unwrap();
+        assert!(t.path().is_dir());
+        assert!(!root.exists());
+    }
+    #[test]
+    fn output_collision_and_cancel_preserve_existing_files() {
+        let t = tempfile::tempdir().unwrap();
+        let input = t.path().join("input");
+        fs::write(&input, "original").unwrap();
+        fs::write(t.path().join("existing"), "keep").unwrap();
+        assert!(publish(&input, t.path(), "existing", &Cancel::default()).is_err());
+        assert_eq!(fs::read(t.path().join("existing")).unwrap(), b"keep");
+        let c = Cancel::default();
+        c.cancel();
+        assert!(publish(&input, t.path(), "new", &c).is_err());
+        assert!(!t.path().join("new").exists());
+        assert_eq!(fs::read(input).unwrap(), b"original");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn locked_input_is_rejected_and_cross_volume_copy_is_verified() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).unwrap();
+        let source = t.path().join("original.3ds");
+        fs::write(&source, "source data").unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&source)
+            .unwrap();
+        assert!(crate::validation::input(&source, "3ds").is_err());
+        assert!(copy(&source, &t.path().join("copy"), &Cancel::default()).is_err());
+        drop(lock);
+        crate::validation::input(&source, "3ds").unwrap();
+        let output = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
+        let dest = publish(&source, output.path(), "copied", &Cancel::default()).unwrap();
+        equal(&source, &dest, &Cancel::default()).unwrap();
+    }
+}

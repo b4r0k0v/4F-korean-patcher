@@ -2,5 +2,11 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-confirm", "opener:allow-open-url", "opener:allow-open-path"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-confirm", {
+    "identifier": "opener:allow-open-url",
+    "allow": [
+      { "url": "https://github.com/b4r0k0v/HackingToolkit3DS/releases/download/v9/HackingToolkit3DSv9.zip" },
+      { "url": "https://gbatemp.net/download/batch-cia-3ds-decryptor.35098/download?version=35152" }
+    ]
+  }]
 }
