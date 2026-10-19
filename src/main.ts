@@ -1,7 +1,8 @@
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { open, confirm } from '@tauri-apps/plugin-dialog';
+import { openUrl, openPath } from '@tauri-apps/plugin-opener';
+import { listen } from '@tauri-apps/api/event';
 
 interface AppError { message: string; detail: string }
 const fields = [
@@ -66,3 +67,41 @@ document.querySelector<HTMLInputElement>('#useDlc')!.onchange = () => { document
 document.querySelector('#toolLink')!.addEventListener('click', () => { void openUrl('https://github.com/b4r0k0v/HackingToolkit3DS/releases/download/v9/HackingToolkit3DSv9.zip').catch(showError); });
 document.querySelector('#decryptLink')!.addEventListener('click', () => { void openUrl('https://gbatemp.net/download/batch-cia-3ds-decryptor.35098/download?version=35152').catch(showError); });
 document.querySelector('#copy')!.addEventListener('click', () => { void navigator.clipboard.writeText(document.querySelector('#result')!.textContent || '').catch(showError); });
+
+const start = document.querySelector<HTMLButtonElement>('#start')!;
+const cancel = document.querySelector<HTMLButtonElement>('#cancel')!;
+const outputButton = document.querySelector<HTMLButtonElement>('#openOutput')!;
+const status = document.querySelector('#status')!;
+const result = document.querySelector('#result')!;
+const progress = document.querySelector('#progress')!;
+let pendingClose = false;
+await listen<{ stage: string; completed: number; total: number }>('patch-progress', ({ payload: p }) => {
+  status.textContent = `${p.stage} · ${p.completed}/${p.total}단계 완료`;
+  const line = document.createElement('p'); line.textContent = p.stage;
+  progress.append(line); if (progress.children.length > 12) progress.firstElementChild?.remove();
+});
+await listen('patch-close-requested', async () => {
+  if (pendingClose) return;
+  pendingClose = true;
+  try { if (await confirm('패치를 취소하고 종료할까요? 도구 종료를 기다린 뒤 앱을 닫습니다. 작업 폴더는 보존됩니다.', { title: '패치 실행 중', kind: 'warning' })) { await invoke('cancel_patch', { close: true }); status.textContent = '도구를 종료하고 앱을 닫는 중…'; } }
+  catch (e) { showError(e); }
+  finally { pendingClose = false; }
+});
+start.onclick = async () => {
+  if (busy) return;
+  const inputs = request(); setBusy(true); cancel.hidden = false; cancel.disabled = false;
+  outputButton.hidden = true; document.querySelector<HTMLElement>('#copy')!.hidden = true;
+  result.textContent = ''; progress.replaceChildren(); status.textContent = '실행 전 원본 재검사 중…';
+  try {
+    const outcome = await invoke<{ files: string[]; warning?: string }>('start_patch', { request: inputs });
+    status.textContent = outcome.warning || '패치 파일 생성이 완료되었습니다. 게임 내 동작은 별도로 확인하세요.';
+    result.textContent = outcome.files.join('\n'); outputButton.hidden = false;
+  } catch (e) { showError(e); }
+  finally { cancel.hidden = true; setBusy(false); }
+};
+cancel.onclick = async () => {
+  cancel.disabled = true;
+  try { await invoke('cancel_patch', { close: false }); status.textContent = '취소 중… 현재 도구가 종료될 때까지 기다려 주세요.'; }
+  catch (e) { showError(e); cancel.disabled = false; }
+};
+outputButton.onclick = () => { void openPath(values.output).catch(showError); };

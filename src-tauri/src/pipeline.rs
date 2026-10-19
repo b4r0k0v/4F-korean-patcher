@@ -136,10 +136,10 @@ pub fn run(request: Request, cancel: Cancel, emit: impl Fn(Progress)) -> Result<
     })();
     result.map_err(|mut e: crate::error::AppError| {
         e.run_id = Some(id);
-        e.stage = Some(stage);
+        e.stage = Some(stage.into_boxed_str());
         e.saved_files = saved;
         if let Some(w) = workspace {
-            e.workspace = Some(w.root.to_string_lossy().into_owned());
+            e.workspace = Some(w.root.to_string_lossy().into_owned().into_boxed_str());
             let _ = std::fs::write(
                 w.root.join("error.json"),
                 serde_json::to_vec_pretty(&e).unwrap_or_default(),

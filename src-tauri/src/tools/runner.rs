@@ -43,7 +43,8 @@ impl Runner for ProcessRunner {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
+            // Suspend until assigned to a Job, so descendants cannot escape cancellation.
+            command.creation_flags(0x08000004);
         }
         let mut child = command.spawn()?;
         #[cfg(windows)]
@@ -55,6 +56,13 @@ impl Runner for ProcessRunner {
                 return Err(e);
             }
         };
+        #[cfg(windows)]
+        if let Err(e) = job.resume(child.id()) {
+            let _ = job.terminate();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
         loop {
             if let Err(e) = self.cancel.check() {
                 #[cfg(windows)]
@@ -64,6 +72,8 @@ impl Runner for ProcessRunner {
                 return Err(e);
             }
             if let Some(status) = child.try_wait()? {
+                #[cfg(windows)]
+                job.terminate()?;
                 fs::write(stem.with_extension("exit.txt"), status.to_string())?;
                 if !status.success() {
                     return Err(AppError::new(
@@ -116,6 +126,44 @@ mod job {
     };
     pub struct Job(HANDLE);
     impl Job {
+        pub fn resume(&self, pid: u32) -> Result<()> {
+            use windows_sys::Win32::{
+                Foundation::INVALID_HANDLE_VALUE,
+                System::{
+                    Diagnostics::ToolHelp::*,
+                    Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME},
+                },
+            };
+            unsafe {
+                let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if snapshot == INVALID_HANDLE_VALUE {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+                let mut entry: THREADENTRY32 = zeroed();
+                entry.dwSize = size_of::<THREADENTRY32>() as u32;
+                let mut found = false;
+                let mut ok = Thread32First(snapshot, &mut entry);
+                while ok != 0 {
+                    if entry.th32OwnerProcessID == pid {
+                        let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                        if !thread.is_null() {
+                            found = ResumeThread(thread) != u32::MAX;
+                            CloseHandle(thread);
+                        }
+                        break;
+                    }
+                    ok = Thread32Next(snapshot, &mut entry);
+                }
+                CloseHandle(snapshot);
+                if !found {
+                    return Err(AppError::new(
+                        "외부 도구 스레드를 시작하지 못했습니다.",
+                        pid,
+                    ));
+                }
+                Ok(())
+            }
+        }
         pub fn attach(child: &std::process::Child) -> Result<Self> {
             unsafe {
                 let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());

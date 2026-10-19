@@ -4,17 +4,17 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct AppError {
     pub message: String,
-    pub detail: String,
+    pub detail: Box<str>,
     pub run_id: Option<String>,
-    pub stage: Option<String>,
-    pub workspace: Option<String>,
+    pub stage: Option<Box<str>>,
+    pub workspace: Option<Box<str>>,
     pub saved_files: Vec<String>,
 }
 impl AppError {
     pub fn new(message: impl Into<String>, detail: impl ToString) -> Self {
         Self {
             message: message.into(),
-            detail: detail.to_string(),
+            detail: detail.to_string().into_boxed_str(),
             run_id: None,
             stage: None,
             workspace: None,
