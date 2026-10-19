@@ -1,8 +1,12 @@
+pub mod archive;
 mod commands;
 pub mod error;
 pub mod hash;
 pub mod model;
+pub mod pipeline;
+pub mod tools;
 pub mod validation;
+pub mod workspace;
 
 pub fn run() {
     tauri::Builder::default()
