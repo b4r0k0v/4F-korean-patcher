@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "4F Korean Patcher",
+  "version": "0.1.0",
+  "identifier": "io.github.four-f-korean-patcher",
+  "build": {
+    "beforeDevCommand": "npm.cmd run dev",
+    "beforeBuildCommand": "npm.cmd run build",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "title": "진여신전생 4F 한글 패처", "width": 1040, "height": 900, "minWidth": 760, "minHeight": 620 }],
+    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost" }
+  },
+  "bundle": { "active": true, "targets": ["nsis"], "shortDescription": "진여신전생 4F 한글 패치 도우미", "windows": { "nsis": { "languages": ["Korean"], "displayLanguageSelector": false } } }
+}
