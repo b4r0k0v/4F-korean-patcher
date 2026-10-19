@@ -62,8 +62,8 @@ DLC:  A18A1C190301F204602395B415BF37B2B4BDCD5C05709BBCD46EF7316936DB93
 예상 파일 구성:
 
 ```text
-dev-temp/docs/development-plan.md
-dev-temp/docs/tool-integration.md
+docs/development-plan.md
+docs/tool-integration.md
 src/                          # 화면, 입력 상태, 진행·오류 표시
 src-tauri/src/commands.rs      # UI 호출 진입점
 src-tauri/src/model.rs         # 요청, 상태, 단계, 결과 모델
