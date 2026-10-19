@@ -1,2 +1,8 @@
 :root { font-family: "Malgun Gothic", sans-serif; color: #202c3d; background: #f3f6fa; }
 body { margin: 0; } main { max-width: 920px; margin: 32px auto; padding: 24px; }
+header > span { color: #526077; font-size: 13px; } h1 { font-size: 29px; } h2 { font-size: 19px; }
+section { background: white; border: 1px solid #dce3ee; border-radius: 12px; margin: 20px 0; padding: 24px; }
+p, small { color: #526077; line-height: 1.7; } .field { margin: 16px 0; } label { display: block; margin-bottom: 6px; font-weight: 600; }
+.path { display: flex; gap: 8px; } .path input { flex: 1; min-width: 0; } input, select, button { font: inherit; padding: 10px 12px; border-radius: 6px; border: 1px solid #bdc9da; }
+button { cursor: pointer; background: #edf2fa; } button:hover { background: #dae5f5; } button:disabled { opacity: .5; cursor: default; } #start { background: #235ac7; color: white; } .link { color: #235ac7; background: none; border: none; padding: 5px; text-decoration: underline; }
+small { display: block; overflow-wrap: anywhere; } .toggle { margin-top: 24px; } pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; max-height: 340px; overflow: auto; } :focus-visible { outline: 3px solid #6e99ed; outline-offset: 2px; } [hidden] { display: none !important; }
