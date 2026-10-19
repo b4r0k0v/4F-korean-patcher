@@ -17,8 +17,12 @@ jobs:
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib --bins
-      - run: npm.cmd run tauri build
-      - uses: actions/upload-artifact@v4
+      - name: Build Windows installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: npm.cmd run tauri build
+      - name: Upload Windows installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
