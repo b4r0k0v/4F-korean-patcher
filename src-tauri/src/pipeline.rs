@@ -58,17 +58,12 @@ fn execute(
         };
         step("입력·도구·원본 검사")?;
         validation::validate(&request)?;
-        hash::verify(&request.base, expected.0, &cancel)?;
-        if let Some(p) = &request.dlc {
-            hash::verify(p, expected.1, &cancel)?;
-        }
         let w = Workspace::create(&request, &id)?;
         workspace = Some(w);
         let w = workspace.as_ref().unwrap();
         let base = w.root.join("base");
         step("원본·패치 복사")?;
-        workspace::copy(&request.base, &base.join("input.3ds"), &cancel)?;
-        hash::verify(&base.join("input.3ds"), expected.0, &cancel)?;
+        workspace::copy_verified(&request.base, &base.join("input.3ds"), expected.0, &cancel)?;
         for (p, n) in [
             (&request.patch1, "first.zip"),
             (&request.patch2, "second.zip"),
@@ -80,8 +75,7 @@ fn execute(
         let decryptor = Decryptor::new(&request.decryptor)?;
         let dlc_folder = w.root.join("dlc");
         let catalog = if let (Some(original), Some(patch)) = (&request.dlc, &request.dlc_patch) {
-            workspace::copy(original, &dlc_folder.join("input.cia"), &cancel)?;
-            hash::verify(&dlc_folder.join("input.cia"), expected.1, &cancel)?;
+            workspace::copy_verified(original, &dlc_folder.join("input.cia"), expected.1, &cancel)?;
             workspace::copy(patch, &w.root.join("patches/dlc.zip"), &cancel)?;
             step("DLC 해독")?;
             Some(decryptor.decrypt(runner.as_mut(), &dlc_folder)?)
