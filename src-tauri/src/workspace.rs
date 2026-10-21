@@ -1,7 +1,9 @@
 use crate::{
     error::{AppError, Result},
+    hash,
     model::{Cancel, Request},
 };
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -38,6 +40,22 @@ pub fn safe_tree(path: &Path) -> Result<()> {
     Ok(())
 }
 pub fn copy(source: &Path, dest: &Path, cancel: &Cancel) -> Result<()> {
+    copy_with(source, dest, cancel, |_| {})
+}
+/// Hash the bytes being copied, then independently verify the persisted copy.
+pub fn copy_verified(source: &Path, dest: &Path, expected: &str, cancel: &Cancel) -> Result<()> {
+    let mut digest = Sha256::new();
+    copy_with(source, dest, cancel, |bytes| digest.update(bytes))?;
+    hash::verify_digest(source, expected, &format!("{:X}", digest.finalize()))?;
+    hash::verify(dest, expected, cancel)
+}
+fn copy_with(
+    source: &Path,
+    dest: &Path,
+    cancel: &Cancel,
+    mut observe: impl FnMut(&[u8]),
+) -> Result<()> {
+    cancel.check()?;
     reject_link(source)?;
     if dest.exists() {
         reject_link(dest)?;
@@ -52,6 +70,7 @@ pub fn copy(source: &Path, dest: &Path, cancel: &Cancel) -> Result<()> {
             break;
         }
         output.write_all(&buf[..n])?;
+        observe(&buf[..n]);
     }
     output.sync_all()?;
     Ok(())
@@ -166,6 +185,47 @@ pub fn publish(source: &Path, output: &Path, name: &str, cancel: &Cancel) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn verified_copy_handles_empty_and_multiple_buffers() {
+        let t = tempfile::tempdir().unwrap();
+        let source = t.path().join("source");
+        let dest = t.path().join("copy");
+        let cancel = Cancel::default();
+        for data in [
+            vec![],
+            (0..2 * 1024 * 1024 + 17).map(|i| (i % 251) as u8).collect(),
+        ] {
+            fs::write(&source, &data).unwrap();
+            let expected = format!("{:X}", Sha256::digest(&data));
+            copy_verified(&source, &dest, &expected, &cancel).unwrap();
+            assert_eq!(fs::read(&dest).unwrap(), data);
+            assert_eq!(hash::digest(&dest, &cancel).unwrap(), expected);
+        }
+    }
+    #[test]
+    fn verified_copy_rejects_mismatch_and_preserves_source() {
+        let t = tempfile::tempdir().unwrap();
+        let source = t.path().join("source");
+        let dest = t.path().join("copy");
+        fs::write(&source, b"changed").unwrap();
+        let error = copy_verified(&source, &dest, hash::BASE, &Cancel::default()).unwrap_err();
+        assert!(error.detail.contains("expected:"));
+        assert!(error.detail.contains(&source.display().to_string()));
+        assert_eq!(fs::read(&source).unwrap(), b"changed");
+    }
+    #[test]
+    fn verified_copy_checks_cancel_before_creating_destination() {
+        let t = tempfile::tempdir().unwrap();
+        let source = t.path().join("source");
+        let dest = t.path().join("copy");
+        fs::write(&source, b"original").unwrap();
+        let cancel = Cancel::default();
+        cancel.cancel();
+        let error = copy_verified(&source, &dest, hash::BASE, &cancel).unwrap_err();
+        assert_eq!(error.detail.as_ref(), "cancelled");
+        assert!(!dest.exists());
+        assert_eq!(fs::read(&source).unwrap(), b"original");
+    }
     #[test]
     fn ownership_marker_prevents_cleanup_of_foreign_data() {
         let t = tempfile::tempdir().unwrap();

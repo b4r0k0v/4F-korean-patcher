@@ -23,6 +23,9 @@ pub fn digest(path: &Path, cancel: &Cancel) -> Result<String> {
 }
 pub fn verify(path: &Path, expected: &str, cancel: &Cancel) -> Result<()> {
     let actual = digest(path, cancel)?;
+    verify_digest(path, expected, &actual)
+}
+pub(crate) fn verify_digest(path: &Path, expected: &str, actual: &str) -> Result<()> {
     if actual != expected {
         return Err(AppError::new(
             "원본 SHA-256이 다릅니다. 지정된 버전의 원본을 선택하세요.",
