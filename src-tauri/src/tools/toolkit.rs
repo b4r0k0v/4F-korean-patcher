@@ -345,6 +345,8 @@ impl Toolkit {
 }
 
 fn normalize_code_header(cwd: &Path) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+
     let path = cwd.join("DecryptedExHeader.bin");
     let mut h = fs::read(&path)?;
     if h.len() < 0x40 {
@@ -358,23 +360,26 @@ fn normalize_code_header(cwd: &Path) -> Result<()> {
             .iter()
             .map(|at| u32::from_le_bytes(h[*at..*at + 4].try_into().unwrap()) as u64)
             .sum::<u64>();
-        let code = fs::read(cwd.join("ExtractedExeFS/code.bin"))?;
-        if pages > 0 && code.len() as u64 == pages * 4096 {
+        let mut code = fs::File::open(cwd.join("ExtractedExeFS/code.bin"))?;
+        let code_size = code.metadata()?.len();
+        if pages > 0 && code_size == pages * 4096 {
             // The provided UNDUB and Korean patch already contain raw, page-aligned code.
             h[0xd] &= !1;
             fs::write(path, h)?;
         } else {
             // Compressed code must have a plausible BLZ footer, never guess from the flag alone.
-            let valid = code.len() >= 8 && {
-                let at = code.len() - 8;
-                let footer = u32::from_le_bytes(code[at..at + 4].try_into().unwrap());
-                let expanded = u32::from_le_bytes(code[at + 4..].try_into().unwrap());
+            let valid = code_size >= 8 && {
+                code.seek(SeekFrom::End(-8))?;
+                let mut bytes = [0; 8];
+                code.read_exact(&mut bytes)?;
+                let footer = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+                let expanded = u32::from_le_bytes(bytes[4..].try_into().unwrap());
                 let compressed = footer & 0xffffff;
                 let header = footer >> 24;
                 (8..=11).contains(&header)
                     && compressed >= header
-                    && compressed as usize <= code.len()
-                    && code.len() as u64 + expanded as u64 == pages * 4096
+                    && compressed as u64 <= code_size
+                    && code_size + expanded as u64 == pages * 4096
             };
             if !valid {
                 return Err(AppError::new(
@@ -402,5 +407,47 @@ mod tests {
         normalize_code_header(t.path()).unwrap();
         h[13] = 2;
         assert_eq!(fs::read(t.path().join("DecryptedExHeader.bin")).unwrap(), h);
+    }
+    #[test]
+    fn plausible_blz_footer_preserves_compression_flag() {
+        let t = tempfile::tempdir().unwrap();
+        fs::create_dir(t.path().join("ExtractedExeFS")).unwrap();
+        let mut h = vec![0; 2048];
+        h[13] = 3;
+        h[0x14..0x18].copy_from_slice(&1u32.to_le_bytes());
+        fs::write(t.path().join("DecryptedExHeader.bin"), &h).unwrap();
+        let mut code = vec![0; 16];
+        code[8..12].copy_from_slice(&0x08000008u32.to_le_bytes());
+        code[12..].copy_from_slice(&4080u32.to_le_bytes());
+        fs::write(t.path().join("ExtractedExeFS/code.bin"), code).unwrap();
+        normalize_code_header(t.path()).unwrap();
+        assert_eq!(fs::read(t.path().join("DecryptedExHeader.bin")).unwrap(), h);
+    }
+    #[test]
+    fn invalid_blz_footer_is_rejected_without_changing_header() {
+        let t = tempfile::tempdir().unwrap();
+        fs::create_dir(t.path().join("ExtractedExeFS")).unwrap();
+        let mut h = vec![0; 2048];
+        h[13] = 3;
+        h[0x14..0x18].copy_from_slice(&1u32.to_le_bytes());
+        fs::write(t.path().join("DecryptedExHeader.bin"), &h).unwrap();
+        let mut cases = vec![vec![], vec![0; 7]];
+        for (footer, expanded) in [
+            (0x07000008u32, 4080u32), // header too short
+            (0x0c00000c, 4080),       // header too long
+            (0x08000007, 4080),       // compressed size smaller than header
+            (0x08000011, 4080),       // compressed size exceeds file size
+            (0x08000008, 4079),       // expanded size does not match pages
+        ] {
+            let mut code = vec![0; 16];
+            code[8..12].copy_from_slice(&footer.to_le_bytes());
+            code[12..].copy_from_slice(&expanded.to_le_bytes());
+            cases.push(code);
+        }
+        for code in cases {
+            fs::write(t.path().join("ExtractedExeFS/code.bin"), code).unwrap();
+            assert!(normalize_code_header(t.path()).is_err());
+            assert_eq!(fs::read(t.path().join("DecryptedExHeader.bin")).unwrap(), h);
+        }
     }
 }
